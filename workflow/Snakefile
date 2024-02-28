@@ -1,0 +1,160 @@
+import os
+
+target_dir = "data/Microbiome_pilot/"
+mydir = "."
+classifier = "2022.10.backbone.v4.nb.qza"
+metadata = "qiime_metadata.tsv"
+samples = [f.split(".")[0] for f in os.listdir(target_dir) if f.endswith(".fastq.gz")]
+
+rule all:
+    input:
+        "results/qiime/giw2023-table.qza",
+        "results/qiime/giw2023-rep-seqs.qza",
+        "results/qiime/giw2023-taxonomy.qza",
+        "results/qiime/giw2023-taxa-bar-plots.qzv",
+        "results/phyloseq/otu_table.txt",
+        "results/phyloseq/taxonomy.tsv",
+        fastqc_output = expand("results/fastqc/{sample}_fastqc.html", sample=glob_wildcards("data/Microbiome_pilot/{sample}.fastq.gz").sample),
+        trimmed_reads = expand("results/trimmed/{sample}.fastq.gz", sample=glob_wildcards("data/Microbiome_pilot/{sample}.fastq.gz").sample)
+
+rule trim_reads:
+    input:
+        fastq=f"{target_dir}{{sample}}.fastq.gz",
+        adapters="data/MiSeq_SEadapters.fa"
+    output:
+        trimmed="results/trimmed/{sample}.fastq.gz"
+    shell:
+        """
+        trimmomatic SE {input.fastq} {output.trimmed} -threads 4 LEADING:19 ILLUMINACLIP:{input.adapters}:2:30:10 SLIDINGWINDOW:4:20
+        """
+
+rule fastqc:
+    input:
+        "results/trimmed/{sample}.fastq.gz"
+    output:
+        "results/fastqc/{sample}_fastqc.html"
+    shell:
+        """
+        fastqc {input} -o results/fastqc/
+        """
+
+
+
+rule create_qiime_manifest:
+    input:
+        samples=expand("data/Microbiome_pilot/{sample}-read-1.fastq.gz", sample=glob_wildcards("data/Microbiome_pilot/{sample}-read-1.fastq.gz").sample),
+    output:
+        manifest_file="results/qiime_sample_manifest.txt"
+    run:
+        with open(output.manifest_file, "w") as manifest:
+            manifest.write("sample-id\tforward-absolute-filepath\treverse-absolute-filepath\n")
+            for sample in input.samples:
+                # Build the file paths for forward and reverse reads based on the sample name
+                fwd_path = os.path.abspath(f"results/trimmed/{sample}-read-1.fastq.gz")
+                rev_path = os.path.abspath(f"results/trimmed/{sample}-read-4.fastq.gz")
+                # Write the sample ID and the absolute paths for the forward and reverse reads to the manifest
+                manifest.write(f"{sample}\t{fwd_path}\t{rev_path}\n")
+
+
+rule qiime_import:
+    input:
+        manifest="results/qiime_sample_manifest.txt"
+    output:
+        qza="results/qiime/demux-single-end.qza"
+    conda:
+        "envs/qiime2-amplicon-2024.2-py38-linux-conda.yml"
+    shell:
+        """
+        qiime tools import \
+        --type 'SampleData[PairedEndSequencesWithQuality]' \
+        --input-path {input.manifest} \
+        --input-format PairedEndFastqManifestPhred33V2 \
+        --output-path {output.qza}
+        """
+
+rule denoise:
+    input:
+        qza="results/qiime/demux-single-end.qza"
+    output:
+        rep_seqs="results/qiime/giw2023-rep-seqs.qza",
+        table="results/qiime/giw2023-table.qza",
+        stats="results/qiime/giw2023-stats.qza"
+    conda:
+        "envs/qiime2-amplicon-2024.2-py38-linux-conda.yml"
+    shell:
+        """
+        qiime dada2 denoise-single \
+        --i-demultiplexed-seqs {input.qza} \
+        --p-trunc-len 250 \
+        --p-n-threads {threads} \
+        --o-representative-sequences {output.rep_seqs} \
+        --o-table {output.table} \
+        --o-denoising-stats {output.stats}
+        """
+
+rule classify:
+    input:
+        rep_seqs="results/qiime/giw2023-rep-seqs.qza"
+    output:
+        taxonomy="results/qiime/giw2023-taxonomy.qza"
+    conda:
+        "envs/qiime2-amplicon-2024.2-py38-linux-conda.yml"
+    shell:
+        """
+        qiime feature-classifier classify-sklearn \
+        --i-classifier {classifier} \
+        --i-reads {input.rep_seqs} \
+        --p-n-jobs {threads} \
+        --o-classification {output.taxonomy}
+        """
+
+rule qiime_taxa_barplot:
+    input:
+        table="results/qiime/giw2023-table.qza",
+        taxonomy="results/qiime/giw2023-taxonomy.qza",
+        metadata=metadata
+    output:
+        barplot="results/qiime/giw2023-taxa-bar-plots.qzv"
+    conda:
+        "envs/qiime2-amplicon-2024.2-py38-linux-conda.yml"
+    shell:
+        """
+        qiime taxa barplot \
+        --i-table {input.table} \
+        --i-taxonomy {input.taxonomy} \
+        --m-metadata-file {input.metadata} \
+        --o-visualization {output.barplot}
+        """
+
+rule export_otu_table:
+    input:
+        table="results/qiime/giw2023-table.qza"
+    output:
+        otu_table="results/phyloseq/otu_table.txt"
+    conda:
+        "envs/qiime2-amplicon-2024.2-py38-linux-conda.yml"
+    shell:
+        """
+        qiime tools export \
+        --input-path {input.table} \
+        --output-path results/phyloseq/
+        biom convert -i results/phyloseq/feature-table.biom -o {output.otu_table} --to-tsv
+        """
+
+rule export_taxonomy:
+    input:
+        taxonomy="results/qiime/giw2023-taxonomy.qza"
+    output:
+        taxonomy_tsv="results/phyloseq/taxonomy.tsv"
+    conda:
+        "envs/qiime2-amplicon-2024.2-py38-linux-conda.yml"
+    shell:
+        """
+        qiime tools export \
+        --input-path {input.taxonomy} \
+        --output-path results/phyloseq/
+        mv results/phyloseq/taxonomy.tsv {output.taxonomy_tsv}
+        """
+
+# This rule assumes that the taxonomy export generates a TSV file directly, which might need adjustment.
+# You may need to format the taxonomy.tsv file appropriately for Phyloseq after exporting.

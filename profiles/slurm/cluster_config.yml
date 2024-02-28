@@ -1,0 +1,7 @@
+__default__:
+    time: 1-00:00:00
+    nodes: 1
+    mem: 32G
+    cpus-per-task: 2
+    output: "logs/slurm/slurm-%j.out"
+    error: "logs/slurm/slurm-%j.err"
