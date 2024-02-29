@@ -4,7 +4,7 @@ target_dir = "data/Microbiome_pilot/"
 mydir = "."
 classifier = "2022.10.backbone.v4.nb.qza"
 metadata = "qiime_metadata.tsv"
-samples = [f.split(".")[0] for f in os.listdir(target_dir) if f.endswith(".fastq.gz")]
+samples = [f.split(".")[0] for f in os.listdir(target_dir) if f.endswith("-read-1.fastq.gz")]
 
 rule all:
     input:
@@ -38,23 +38,21 @@ rule fastqc:
         fastqc {input} -o results/fastqc/
         """
 
-
-
 rule create_qiime_manifest:
     input:
-        samples=expand("data/Microbiome_pilot/{sample}-read-1.fastq.gz", sample=glob_wildcards("data/Microbiome_pilot/{sample}-read-1.fastq.gz").sample),
+        # Assuming forward and reverse reads are placed in the same directory and follow the naming convention you've provided
+        fwd_samples=expand("results/trimmed/{sample}-read-1.fastq.gz", sample=[f.split("-")[0] for f in os.listdir("results/trimmed/") if f.endswith("-read-1.fastq.gz")]),
     output:
         manifest_file="results/qiime_sample_manifest.txt"
     run:
         with open(output.manifest_file, "w") as manifest:
             manifest.write("sample-id\tforward-absolute-filepath\treverse-absolute-filepath\n")
-            for sample in input.samples:
-                # Build the file paths for forward and reverse reads based on the sample name
-                fwd_path = os.path.abspath(f"results/trimmed/{sample}-read-1.fastq.gz")
-                rev_path = os.path.abspath(f"results/trimmed/{sample}-read-4.fastq.gz")
-                # Write the sample ID and the absolute paths for the forward and reverse reads to the manifest
-                manifest.write(f"{sample}\t{fwd_path}\t{rev_path}\n")
-
+            # Assuming sample names are consistent between fwd and rev reads
+            sample_names = [os.path.basename(f).split("-read-1.fastq.gz")[0] for f in input.fwd_samples]
+            for sample_name in sample_names:
+                fwd_path = os.path.abspath(f"results/trimmed/{sample_name}-read-1.fastq.gz")
+                rev_path = os.path.abspath(f"results/trimmed/{sample_name}-read-4.fastq.gz")
+                manifest.write(f"{sample_name}\t{fwd_path}\t{rev_path}\n")
 
 rule qiime_import:
     input:

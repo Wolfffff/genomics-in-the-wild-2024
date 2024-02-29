@@ -2,18 +2,14 @@
 
 ## Introduction
 
-Add to .bashrc
+Make sure to install Snakemake first!
 
-```bash
-export PATH=$PATH:/Genomics/argo/users/swwolf/miniforge3/bin
-```
 
 Run the following:
 
 ```bash
 snakemake --snakefile workflow/Snakefile -c 64 --use-conda
 ```
-
 
 To distribute this workflow, run
 
