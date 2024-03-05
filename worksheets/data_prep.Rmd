@@ -1,0 +1,348 @@
+---
+title: "giw24_partition"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+
+```{r}
+# basic initialization
+require(tidyverse)
+require(ggplot2)
+require(vegan)
+require(phyloseq)
+require(RColorBrewer)
+
+# clear
+rm(list = ls())
+
+# set your working directory
+setwd(dir = "/Genomics/ayroleslab2/shared/genomics-in-the-wild-2024/results/")
+```
+
+Import into phyloseq
+```{r}
+# import otu table and convert to matrix
+otu_table <- read.csv("phyloseq/otu_table.txt", sep = "\t", row.names = 1)
+otu_table <- as.matrix(otu_table)
+
+# import taxonomy cleaned table and convert to matrix
+taxonomy <- read.csv("phyloseq/taxonomy_clean.csv", sep = ",", row.names = 1)
+taxonomy <- as.matrix(taxonomy)
+
+# read in metadata
+# note that the data is formatted differently from qiime2 format
+# but just need to ensure that the sampleIDs match between qiime2 and this data table
+metadata <- read.table("phyloseq/giw2022_meta.csv", sep = ",", row.names = 1, header = TRUE)
+
+# read in tree
+phy_tree <- read_tree("phyloseq/tree.nwk")
+# check the daughters
+edges <- phy_tree(phy_tree)$edge
+mycounts <- table(edges[, 1]) # Source nodes; 1st column of edge matrix
+length(mycounts[mycounts == 2]) # Number of nodes with exactly 2 children
+# [1] 7105
+length(mycounts[mycounts != 2]) # Number of nodes with more or fewer children
+# [1] 3
+mycounts[mycounts != 2] # How many nodes each of the above has
+
+# correct for nodes with more than 2 children using ape
+phy_tree_fixed <- ape::multi2di(phy_tree(phy_tree))
+
+
+# import as phyloseq objects
+OTU <- otu_table(otu_table, taxa_are_rows = TRUE)
+TAX <- tax_table(taxonomy)
+META <- sample_data(metadata)
+
+# check for same number of OTU names across all three data types
+taxa_names(TAX)
+taxa_names(OTU)
+taxa_names(phy_tree_fixed)
+
+# check sample names, but order doesn't matter
+# if different number of sample names, phyloseq removes the unmatched ones
+sample_names(OTU)
+sample_names(META)
+
+# import into phyloseq object
+physeq <- phyloseq(OTU, TAX, META, phy_tree)
+
+# call the phyloseq object to see the summary of data
+physeq
+
+# to look at the different data types in the phyloseq object
+physeq@sam_data
+```
+
+need to filter for the different projects 
+```{r}
+levels(physeq@sam_data$project)
+
+bee <- physeq %>%
+  subset_samples(project == "BEE") %>%
+  # remove taxa not part of this data set
+  prune_taxa(taxa_sums(.) > 0, .)
+
+# fix the sample data
+# load in complete
+bee.meta <- read.table("phyloseq/giw2022_bee_link.csv", sep = ",", row.names = 1, header = TRUE)
+
+# replace sampledata
+sample_data(bee) <- sample_data(bee.meta)
+
+# save bees
+saveRDS(bee, file = "giw22_bee_phyloseq.Rmd")
+
+# repeat for tick
+tick <- physeq %>%
+  subset_samples(project == "TICK") %>%
+  # remove taxa not part of this data set
+  prune_taxa(taxa_sums(.) > 0, .)
+
+# fix the sample data
+# load in complete
+tick.meta <- read.table("phyloseq/giw2022_tick_link.csv", sep = ",", row.names = 1, header = TRUE)
+
+# replace sampledata
+sample_data(tick) <- sample_data(tick.meta)
+
+# save tick
+saveRDS(tick, file = "giw22_tick_phyloseq.Rmd")
+
+# repeat for rhino
+rhino <- physeq %>%
+  subset_samples(project == "RHINO") %>%
+  # remove taxa not part of this data set
+  prune_taxa(taxa_sums(.) > 0, .)
+
+# fix the sample data
+# load in complete
+rhino.meta <- read.table("phyloseq/giw2022_rhino_link.csv", sep = ",", row.names = 1, header = TRUE)
+
+# replace sampledata
+sample_data(rhino) <- sample_data(rhino.meta)
+
+# save tick
+saveRDS(rhino, file = "giw22_rhino_phyloseq.Rmd")
+rhino <- readRDS(file = "giw22_rhino_phyloseq.Rmd")
+saveRDS(rhino, file = "matt_rhino.Rds")
+
+# repeat for water
+water <- physeq %>%
+  subset_samples(project == "WATER") %>%
+  # remove taxa not part of this data set
+  prune_taxa(taxa_sums(.) > 0, .)
+
+# fix the sample data
+# load in complete
+water.meta <- read.table("phyloseq/giw2022_water_link_mod.csv", sep = ",", row.names = 1, header = TRUE, fill = TRUE)
+# replace sampledata
+sample_data(water) <- sample_data(water.meta)
+
+# new meta
+water.meta.up <- read.table("water_metadata.csv", sep = ",", row.names = 1, header = TRUE)
+
+sample_data(water) <- sample_data(water.meta.up)
+
+# save tick
+saveRDS(water, file = "giw22_water_phyloseq.Rmd")
+```
+
+```{r}
+# check to make sure i can load things
+bee <- readRDS(file = "giw22_bee_phyloseq.Rmd")
+
+phyloseq::plot_bar(bee)
+
+bee_genus <- bee %>%
+  # pick a taxonomic rank
+  tax_glom(taxrank = "Genus") %>%
+  # convert to relative abundance
+  transform_sample_counts(function(x) {
+    x / sum(x)
+  }) %>%
+  # necessary to melt into something ggplot can use
+  psmelt() %>%
+  # across all
+  filter(Abundance > 0.05) %>%
+  arrange(Genus)
+
+ggplot(bee_genus, aes(x = species, y = Abundance, fill = Genus)) +
+  geom_bar(stat = "identity", position = "fill") +
+  # ylab("Relative abundance") +
+  # scale_fill_manual(values = getPalette(colourCount.genus)) +
+  theme_bw() +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+need to do rarefaction for each project
+```{r}
+bee <- readRDS(file = "giw22_bee_phyloseq.Rmd")
+saveRDS(bee, file = "giw22_bee_phyloseq.Rds")
+
+# check to see read depth
+sample_sums(bee)
+
+plot.bee.rare <-
+  bee %>%
+  # rarefy_even_depth(., sample.size=1000, replace=FALSE, trimOTUs=TRUE, rngseed=11) %>%
+  ranacapa::ggrare(., step = 100, color = "species", se = FALSE, plot = TRUE)
+
+# can customize this if wanted
+plot.bee.rare +
+  theme_classic() +
+  geom_vline(xintercept = 1500)
+
+# rhino
+rhino <- readRDS(file = "giw22_rhino_phyloseq.Rmd")
+saveRDS(rhino, file = "giw22_rhino_phyloseq.Rds")
+sample_sums(rhino)
+
+plot.rhino.rare <-
+  rhino %>%
+  # there are some samples with very few reads so need to prune them
+  # otherwise get error if library size is less than rarefaction step size
+  prune_samples(sample_sums(.) > 100, .) %>%
+  prune_taxa(taxa_sums(.) > 0, .) %>%
+  # and then ggrare
+  ranacapa::ggrare(., step = 100, label = "Ind..Name", color = "Conservancy", se = FALSE, plot = TRUE)
+
+# tick
+tick <- readRDS(file = "giw22_tick_phyloseq.Rmd")
+saveRDS(tick, file = "giw22_tick_phyloseq.Rds")
+
+sample_sums(tick)
+
+plot.tick.rare <-
+  tick %>%
+  # there are some samples with very few reads so need to prune them
+  # otherwise get error if library size is less than rarefaction step size
+  prune_samples(sample_sums(.) > 100, .) %>%
+  prune_taxa(taxa_sums(.) > 0, .) %>%
+  # and then ggrare
+  ranacapa::ggrare(., step = 100, label = "PCR.tube", color = "Location", se = FALSE, plot = TRUE)
+
+plot.tick.rare +
+  geom_vline(xintercept = 200) +
+  geom_vline(xintercept = 300, linetype = "dashed") +
+  geom_vline(xintercept = 400, color = "red") +
+  geom_vline(xintercept = 500, linetype = "longdash")
+
+
+# look at water
+water <- readRDS(file = "giw22_water_phyloseq.Rmd")
+
+saveRDS(water, file = "giw22_water_phyloseq.Rds")
+
+sample_sums(water)
+
+plot.water.rare <-
+  water %>%
+  # there are some samples with very few reads so need to prune them
+  # otherwise get error if library size is less than rarefaction step size
+  prune_samples(sample_sums(.) > 100, .) %>%
+  prune_taxa(taxa_sums(.) > 0, .) %>%
+  # and then ggrare
+  ranacapa::ggrare(., step = 100, color = "Env.type", se = FALSE, plot = TRUE)
+
+plot.water.rare +
+  geom_vline(xintercept = 1500) +
+  scale_color_manual(values = c("red", "black", "green", "purple"))
+```
+
+more stuff with the rhinos
+merged together the 2020 and 2022 rhinos
+
+Import into phyloseq
+**make sure that data is cleared before reusing this**
+```{r}
+# import otu table and convert to matrix
+otu_table <- read.csv("newrhino-phyloseq/otu_table.txt", sep = "\t", row.names = 1)
+otu_table <- as.matrix(otu_table)
+
+# import taxonomy cleaned table and convert to matrix
+taxonomy <- read.csv("newrhino-phyloseq/taxonomy_clean.csv", sep = ",", row.names = 1)
+taxonomy <- as.matrix(taxonomy)
+
+# read in metadata
+# note that the data is formatted differently from qiime2 format
+# but just need to ensure that the sampleIDs match between qiime2 and this data table
+metadata <- read.table("newrhino-phyloseq/giw_allrhinos_meta.csv", sep = ",", row.names = 1, header = TRUE)
+
+# read in tree
+phy_tree <- read_tree("newrhino-phyloseq/tree.nwk")
+# check the daughters
+edges <- phy_tree(phy_tree)$edge
+mycounts <- table(edges[, 1]) # Source nodes; 1st column of edge matrix
+length(mycounts[mycounts == 2]) # Number of nodes with exactly 2 children
+# [1] 7105
+length(mycounts[mycounts != 2]) # Number of nodes with more or fewer children
+# [1] 3
+mycounts[mycounts != 2] # How many nodes each of the above has
+
+# correct for nodes with more than 2 children using ape
+phy_tree_fixed <- ape::multi2di(phy_tree(phy_tree))
+
+
+# import as phyloseq objects
+OTU <- otu_table(otu_table, taxa_are_rows = TRUE)
+TAX <- tax_table(taxonomy)
+META <- sample_data(metadata)
+
+# check for same number of OTU names across all three data types
+taxa_names(TAX)
+taxa_names(OTU)
+taxa_names(phy_tree_fixed)
+
+# check sample names, but order doesn't matter
+# if different number of sample names, phyloseq removes the unmatched ones
+sample_names(OTU)
+sample_names(META)
+
+# import into phyloseq object
+physeqRhino <- phyloseq(OTU, TAX, META, phy_tree_fixed)
+
+# call the phyloseq object to see the summary of data
+physeqRhino
+
+# to look at the different data types in the phyloseq object
+physeqRhino@sam_data
+
+saveRDS(physeqRhino, file = "giw22_allrhino_phyloseq.Rds")
+
+
+sample_sums(physeqRhino)
+
+physeqRhino@sam_data$yearcollect <- as.character(physeqRhino@sam_data$year)
+
+plot.rhino.rare <-
+  physeqRhino %>%
+  # there are some samples with very few reads so need to prune them
+  # otherwise get error if library size is less than rarefaction step size
+  prune_samples(sample_sums(.) > 100, .) %>%
+  prune_taxa(taxa_sums(.) > 0, .) %>%
+  # and then ggrare
+  ranacapa::ggrare(., step = 100, label = "rhinoID", color = "yearcollect", se = FALSE, plot = TRUE)
+
+physeqRhino_family <- physeqRhino %>%
+  # pick a taxonomic rank
+  tax_glom(taxrank = "Family") %>%
+  psmelt() %>%
+  select(rhinoID, Family, Abundance) %>%
+  pivot_wider(names_from = Family, values_from = Abundance)
+
+# check whether this is correct
+rhinobx2 <- physeqRhino %>%
+  subset_samples(., rhinoID == "BX2")
+
+bx2_fam <- rhinobx2 %>%
+  tax_glom(taxrank = "Family") %>%
+  psmelt()
+
+bx2_famw <- bx2_fam %>%
+  select(rhinoID, Family, Abundance) %>%
+  pivot_wider(names_from = Family, values_from = Abundance)
+```

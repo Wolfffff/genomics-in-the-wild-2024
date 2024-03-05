@@ -31,3 +31,20 @@ For those with access to a Slurm-managed compute cluster, this section explains 
 ```bash
 snakemake --snakefile workflow/Snakefile --profile profiles/slurm
 ```
+
+# Phyloseq File Fixes
+
+1. For the OTU_table:
+   - Remove `#constructed` from the biom row.
+   - Change `#OTU ID` to `OTUID`.
+
+2. For the taxonomy file:
+   - Copy `FeatureID` and `Taxon` to a new table.
+   - In the new table, change `FeatureID` to `OTUID` (to match OTU_table).
+   - Select the `Taxon` column, then select "Text to Columns" under the data tab.
+   - Delimit by both space and semicolon.
+   - Rename columns to the appropriate taxonomic level (kingdom, phylum, etc).
+
+3. Now, you can import the files into Phyloseq.
+
+4. Finally, export the rooted tree.

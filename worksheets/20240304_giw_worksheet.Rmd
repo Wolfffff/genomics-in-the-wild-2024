@@ -1,0 +1,58 @@
+---
+title: "Genomics in the Wild --  Worksheet"
+author: "Scott Wolf"
+date: "2024-04-04"
+output: html_document
+---
+
+# Data preprocessing
+
+Preprocessing of the data comprises three steps:
+
+1. **Base-calling:** conversion of the raw data from the sequencer to nucleotide sequences.
+2. **Demultiplexing:** separating reads based on their barcode.
+3. **Taxonomic classification:** we use a 16S bacterial database with sequences for ~13,000 bacteria for classification.
+
+Each sequencing read is compared to the database and assigned a classification up to a certain taxonomic level. It may happen that some sequencing reads can be identified up to a lower taxonomic level than others.
+
+# Getting started
+
+Use a computer that has R and Rstudio installed. We will also provide you with an R script `analysis.R` that contains some of the code needed for the analysis (most of it from the community ecology R packages `vegan` and `phyloseq`).
+
+For the analysis, copy the analysis script and the data folder which contains your preprocessed sequencing data to your computer.
+
+Open Rstudio and point it to the right folder on your computer (i.e., the folder where you put the analysis file and the data.)
+
+```{r setup, echo=TRUE}
+# setwd("~/EEB388/data_analysis/") # Replace with your actual data directory
+```
+
+## Install necessary packages
+
+```{r install_packages, echo=TRUE}
+
+install.packages("vegan") # Package for microbiome analysis
+install.packages("factoextra") # If you are doing PCA
+
+
+source("utils/analysis.R") # This loads some custom functions that we'll use
+
+```
+
+# Data files
+For each project (bee, ocelot, sloth, vampire bats), six data files are provided, one for each taxonomic level (domain - phylum - class - order - family - genus; the reference database we used does not contain species information).
+
+Take a look at some sample data:
+
+```{r sample_data, echo=TRUE}
+sample_OTU <- read.table("data/exampletutorial_family.txt", header = TRUE, sep = "\t")
+print(sample_OTU[1:4, ])
+```
+
+# Choosing a taxonomic level
+
+```{r taxonomic_level, echo=TRUE}
+
+
+
+
