@@ -2,35 +2,36 @@ import os
 import re
 
 
-target_dir = "data/Microbiome_pilot/"
+target_dir = "/Genomics/ayroleslab2/shared/genomics-in-the-wild-2024/data/giw2024/demultiplexed_bees"
 mydir = "."
 classifier = "bin/2022.10.backbone.v4.nb.qza"
 metadata = "qiime_metadata.tsv"
-file_names = [f for f in os.listdir("results/trimmed/") if f.endswith("-read-1.fastq.gz")]
+file_names = [f for f in os.listdir(target_dir) if f.endswith("R1_001.fastq.gz")]
 
 # Extract the sample names from the file names
-samples = [f.split("-")[0] for f in file_names]
+samples = ["_".join(f.split("_")[:3]) for f in file_names]
+
 
 rule all:
     input:
-        "results/qiime/giw2023-table.qza",
-        "results/qiime/giw2023-rep-seqs.qza",
-        "results/qiime/giw2023-taxonomy.qza",
-        "results/qiime/giw2023-taxa-bar-plots.qzv",
+        "results/phyloseq/tree.nwk",
+        "results/qiime/giw2024-table.qza",
+        "results/qiime/giw2024-taxonomy.qza",
+        "results/qiime/giw2024-taxa-bar-plots.qzv",
         "results/phyloseq/otu_table.txt",
         "results/phyloseq/taxonomy.tsv",
-        "results/qiime/giw2023-stats.qzv",  # Add this if you have a rule generating denoise stats visualization
-        "results/qiime/giw2023-rep-seqs.qzv",  # Output from tabulate_seqs rule
-        "results/qiime/giw2023-rooted-tree.qza",  # Output from phylogeny_tree rule
-        fastqc_output=expand("results/fastqc/{sample}_fastqc.html", sample=glob_wildcards("results/trimmed/{sample}.fastq.gz").sample),
-        trimmed_reads=expand("results/trimmed/{sample}.fastq.gz", sample=glob_wildcards("data/Microbiome_pilot/{sample}.fastq.gz").sample)
+        "results/qiime/giw2024-stats.qzv",  # Add this if you have a rule generating denoise stats visualization
+        "results/qiime/giw2024-rep-seqs.qzv",  # Output from tabulate_seqs rule
+        "results/qiime/giw2024-rooted-tree.qza",  # Output from phylogeny_tree rule
+        fastqc_output=expand("results/fastqc{sample}_fastqc.html", sample=glob_wildcards("results/trimmed{sample}.fastq.gz").sample),
+        trimmed_reads=expand("results/trimmed{sample}.fastq.gz", sample=glob_wildcards(f"{target_dir}{{sample}}.fastq.gz").sample)
 
 rule trim_reads:
     input:
         fastq=f"{target_dir}{{sample}}.fastq.gz",
         adapters="data/MiSeq_SEadapters.fa"
     output:
-        trimmed="results/trimmed/{sample}.fastq.gz"
+        trimmed="results/trimmed{sample}.fastq.gz"
     shell:
         """
         trimmomatic SE {input.fastq} {output.trimmed} -threads 4 LEADING:19 ILLUMINACLIP:{input.adapters}:2:30:10 SLIDINGWINDOW:4:20
@@ -49,7 +50,7 @@ rule fastqc:
 rule create_qiime_manifest:
     input:
         # Assuming forward and reverse reads are placed in the same directory and follow the naming convention you've provided
-        fwd_samples=expand("results/trimmed/{sample}-read-1.fastq.gz", sample=samples),
+        fwd_samples=expand("results/trimmed/{sample}_R1_001.fastq.gz", sample=samples),
     output:
         manifest_file="results/qiime_sample_manifest.txt"
     run:
@@ -57,12 +58,12 @@ rule create_qiime_manifest:
         with open(output.manifest_file, "w") as manifest:
             manifest.write("sample-id\tforward-absolute-filepath\treverse-absolute-filepath\n")
             # Assuming sample names are consistent between fwd and rev reads
-            sample_names = [os.path.basename(f).split("-read-1.fastq.gz")[0] for f in input.fwd_samples]
+            sample_names = [os.path.basename(f).split("_R1_001.fastq.gz")[0] for f in input.fwd_samples]
             for sample_name in sample_names:
             # Remove NUMBERS__ from front
 
-                fwd_path = os.path.abspath(f"results/trimmed/{sample_name}-read-1.fastq.gz")
-                rev_path = os.path.abspath(f"results/trimmed/{sample_name}-read-4.fastq.gz")
+                fwd_path = os.path.abspath(f"results/trimmed/{sample_name}_R1_001.fastq.gz")
+                rev_path = os.path.abspath(f"results/trimmed/{sample_name}_R2_001.fastq.gz")
                 sample_name = re.sub(r"^\d+__", "", sample_name)
                 manifest.write(f"{sample_name}\t{fwd_path}\t{rev_path}\n")
 
@@ -98,9 +99,9 @@ rule denoise:
     input:
         qza="results/qiime/demux-single-end.qza"
     output:
-        rep_seqs="results/qiime/giw2023-rep-seqs.qza",
-        table="results/qiime/giw2023-table.qza",
-        stats="results/qiime/giw2023-stats.qza"
+        rep_seqs="results/qiime/giw2024-rep-seqs.qza",
+        table="results/qiime/giw2024-table.qza",
+        stats="results/qiime/giw2024-stats.qza"
     conda:
         "envs/qiime2-amplicon-2024.2-py38-linux-conda.yml"
     shell:
@@ -116,9 +117,9 @@ rule denoise:
 
 rule qiime_denoise_stats:
     input:
-        stats="results/qiime/giw2023-stats.qza"
+        stats="results/qiime/giw2024-stats.qza"
     output:
-        stats_viz="results/qiime/giw2023-stats.qzv"
+        stats_viz="results/qiime/giw2024-stats.qzv"
     conda:
         "envs/qiime2-amplicon-2024.2-py38-linux-conda.yml"
     shell:
@@ -130,9 +131,9 @@ rule qiime_denoise_stats:
 
 rule tabulate_seqs:
     input:
-        rep_seqs="results/qiime/giw2023-rep-seqs.qza"
+        rep_seqs="results/qiime/giw2024-rep-seqs.qza"
     output:
-        rep_seqs_viz="results/qiime/giw2023-rep-seqs.qzv"
+        rep_seqs_viz="results/qiime/giw2024-rep-seqs.qzv"
     conda:
         "envs/qiime2-amplicon-2024.2-py38-linux-conda.yml"
     shell:
@@ -144,12 +145,12 @@ rule tabulate_seqs:
 
 rule phylogeny_tree:
     input:
-        rep_seqs="results/qiime/giw2023-rep-seqs.qza"
+        rep_seqs="results/qiime/giw2024-rep-seqs.qza"
     output:
-        aligned_rep_seqs="results/qiime/giw2023-aligned-rep-seqs.qza",
-        masked_aligned_rep_seqs="results/qiime/giw2023-masked-aligned-rep-seqs.qza",
-        unrooted_tree="results/qiime/giw2023-unrooted-tree.qza",
-        rooted_tree="results/qiime/giw2023-rooted-tree.qza"
+        aligned_rep_seqs="results/qiime/giw2024-aligned-rep-seqs.qza",
+        masked_aligned_rep_seqs="results/qiime/giw2024-masked-aligned-rep-seqs.qza",
+        unrooted_tree="results/qiime/giw2024-unrooted-tree.qza",
+        rooted_tree="results/qiime/giw2024-rooted-tree.qza"
     conda:
         "envs/qiime2-amplicon-2024.2-py38-linux-conda.yml"
     shell:
@@ -165,9 +166,9 @@ rule phylogeny_tree:
 
 rule classify:
     input:
-        rep_seqs="results/qiime/giw2023-rep-seqs.qza"
+        rep_seqs="results/qiime/giw2024-rep-seqs.qza"
     output:
-        taxonomy="results/qiime/giw2023-taxonomy.qza"
+        taxonomy="results/qiime/giw2024-taxonomy.qza"
     conda:
         "envs/qiime2-amplicon-2024.2-py38-linux-conda.yml"
     shell:
@@ -181,11 +182,11 @@ rule classify:
 
 rule qiime_taxa_barplot:
     input:
-        table="results/qiime/giw2023-table.qza",
-        taxonomy="results/qiime/giw2023-taxonomy.qza",
+        table="results/qiime/giw2024-table.qza",
+        taxonomy="results/qiime/giw2024-taxonomy.qza",
         metadata=metadata
     output:
-        barplot="results/qiime/giw2023-taxa-bar-plots.qzv"
+        barplot="results/qiime/giw2024-taxa-bar-plots.qzv"
     conda:
         "envs/qiime2-amplicon-2024.2-py38-linux-conda.yml"
     shell:
@@ -199,7 +200,7 @@ rule qiime_taxa_barplot:
 
 rule export_otu_table:
     input:
-        table="results/qiime/giw2023-table.qza"
+        table="results/qiime/giw2024-table.qza"
     output:
         otu_table="results/phyloseq/otu_table.txt"
     conda:
@@ -214,7 +215,7 @@ rule export_otu_table:
 
 rule export_taxonomy:
     input:
-        taxonomy="results/qiime/giw2023-taxonomy.qza"
+        taxonomy="results/qiime/giw2024-taxonomy.qza"
     output:
         taxonomy_tsv="results/phyloseq/taxonomy.tsv"
     conda:
@@ -223,6 +224,20 @@ rule export_taxonomy:
         """
         qiime tools export \
         --input-path {input.taxonomy} \
+        --output-path results/phyloseq/
+        """
+
+rule export_tree:
+    input:
+        tree="results/qiime/giw2024-rooted-tree.qza"
+    output:
+        tree_export="results/phyloseq/tree.nwk"
+    conda:
+        "envs/qiime2-amplicon-2024.2-py38-linux-conda.yml"
+    shell:
+        """
+        qiime tools export \
+        --input-path {input.tree} \
         --output-path results/phyloseq/
         """
 
